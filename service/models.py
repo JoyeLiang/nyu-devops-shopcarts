@@ -1,9 +1,12 @@
 """
-Models for YourResourceModel
+Models for Account
 
 All of the models are stored in this module
 """
 import logging
+from datetime import date
+from abc import abstractmethod
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 
 logger = logging.getLogger("flask.app")
@@ -11,82 +14,56 @@ logger = logging.getLogger("flask.app")
 # Create the SQLAlchemy object to be initialized later in init_db()
 db = SQLAlchemy()
 
-
-# Function to initialize the database
 def init_db(app):
-    """ Initializes the SQLAlchemy app """
-    YourResourceModel.init_db(app)
-
+    Shopcart.init_db(app)
 
 class DataValidationError(Exception):
-    """ Used for an data validation errors when deserializing """
+    """Used for an data validation errors when deserializing"""
 
+######################################################################
+#  P E R S I S T E N T   B A S E   M O D E L
+######################################################################
+class PersistentBase:
+    """Base class added persistent methods"""
 
-class YourResourceModel(db.Model):
-    """
-    Class that represents a YourResourceModel
-    """
+   #def __init__(self):
+        #self.id = None  # pylint: disable=invalid-name
 
-    app = None
+    @abstractmethod
+    def serialize(self) -> dict:
+        """Convert an object into a dictionary"""
 
-    # Table Schema
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(63))
+    @abstractmethod
+    def deserialize(self, data: dict) -> None:
+        """Convert a dictionary into an object"""
 
-    def __repr__(self):
-        return f"<YourResourceModel {self.name} id=[{self.id}]>"
-
-    def create(self):
+    @abstractmethod
+    def create(self) -> None:
         """
-        Creates a YourResourceModel to the database
+        Creates an object to the database
         """
-        logger.info("Creating %s", self.name)
-        self.id = None  # pylint: disable=invalid-name
-        db.session.add(self)
-        db.session.commit()
 
-    def update(self):
+    @abstractmethod
+    def update(self) -> None:
         """
-        Updates a YourResourceModel to the database
+        Updates an object to the database
         """
-        logger.info("Saving %s", self.name)
-        db.session.commit()
-
+        
     def delete(self):
-        """ Removes a YourResourceModel from the data store """
-        logger.info("Deleting %s", self.name)
+        """Removes an object from the data store"""
+        logger.info("Deleting %s", self.__class__.__name__)
         db.session.delete(self)
         db.session.commit()
 
-    def serialize(self):
-        """ Serializes a YourResourceModel into a dictionary """
-        return {"id": self.id, "name": self.name}
-
-    def deserialize(self, data):
-        """
-        Deserializes a YourResourceModel from a dictionary
-
-        Args:
-            data (dict): A dictionary containing the resource data
-        """
-        try:
-            self.name = data["name"]
-        except KeyError as error:
-            raise DataValidationError(
-                "Invalid YourResourceModel: missing " + error.args[0]
-            ) from error
-        except TypeError as error:
-            raise DataValidationError(
-                "Invalid YourResourceModel: body of request contained bad or no data - "
-                "Error message: " + error
-            ) from error
-        return self
-
     @classmethod
-    def init_db(cls, app):
-        """ Initializes the database session """
+    def init_db(cls, app: Flask):
+        """Initializes the database session
+
+        :param app: the Flask app
+        :type data: Flask
+
+        """
         logger.info("Initializing database")
-        cls.app = app
         # This is where we initialize SQLAlchemy from the Flask app
         db.init_app(app)
         app.app_context().push()
@@ -94,22 +71,168 @@ class YourResourceModel(db.Model):
 
     @classmethod
     def all(cls):
-        """ Returns all of the YourResourceModels in the database """
-        logger.info("Processing all YourResourceModels")
+        """Returns all of the records in the database"""
+        logger.info("Processing all records")
         return cls.query.all()
 
     @classmethod
     def find(cls, by_id):
-        """ Finds a YourResourceModel by it's ID """
+        """Finds a record by it's ID"""
         logger.info("Processing lookup for id %s ...", by_id)
         return cls.query.get(by_id)
 
-    @classmethod
-    def find_by_name(cls, name):
-        """Returns all YourResourceModels with the given name
+
+
+
+######################################################################
+#  I T E M M O D E L
+######################################################################
+class Item(db.Model,PersistentBase):
+    """
+    Class that represents an Item 
+    an item is one line belongs to shopcart  
+    """
+
+
+    app = None
+
+    # Table Schema
+    id = db.Column(db.Integer, primary_key =  True)
+    shopcart_id = db.Column(db.Integer, db.ForeignKey("shopcart.id"))
+    name = db.Column(db.String(64)) # only for better test,a redundant column
+    product_id =db.Column(db.Integer, nullable=False)
+    count = db.Column(db.Integer, nullable = False)
+    
+    def __repr__(self):
+        return f"<Item shopcart=[{self.shopcart_id}] product=[{self.product_id}]>"
+
+    def create(self):
+        """Create an item to the database"""
+        self.id = None
+        logger.info("Creating item for shopcart %s, product %s", self.shopcart_id, self.product_id)
+        db.session.add(self)
+        db.session.commit()
+    
+    def update(self):
+        """Update an item to the database"""
+        logger.info("Updating item for shopcart %s, product %s", self.shopcart_id, self.product_id)
+        db.session.commit()
+    
+    def serialize(self):
+        """Converts an Product into a dictionary"""
+        item = {
+            "id":self.id,
+            "shopcart_id": self.shopcart_id,
+            "name": self.name,
+            "product_id":self.product_id,
+            "count":self.count
+        }
+        return item
+
+    def deserialize(self, data):
+        """
+        Populates an Product from a dictionary
 
         Args:
-            name (string): the name of the YourResourceModels you want to match
+            data (dict): A dictionary containing the resource data
         """
-        logger.info("Processing name query for %s ...", name)
-        return cls.query.filter(cls.name == name)
+        try:
+            self.id = data['id']
+            self.name = data["name"]
+            self.shopcart_id = data["shopcart_id"]
+            self.product_id = data["product_id"]
+            self.count = data["count"]
+        except KeyError as error:
+            raise DataValidationError("Invalid Account: missing " + error.args[0]) from error
+        except TypeError as error:
+            raise DataValidationError(
+                "Invalid Account: body of request contained "
+                "bad or no data - " + error.args[0]
+            ) from error
+        return self
+    
+    @classmethod
+    def find_by_shopcart_and_product(cls, shopcart, product):
+        """Return item with given shopcart id and product id"""
+        logger.info("Processing item id query for %s and %s ...", shopcart, product)
+        return cls.query.filter(cls.shopcart_id == shopcart, cls.product_id == product)
+
+    @classmethod
+    def find_by_shopcart(cls, shopcart):
+        """Return items with given shopcart id"""
+        logger.info("Processing item id query for shopcart %s ...", shopcart)
+        return cls.query.filter(cls.shopcart_id == shopcart)
+    
+
+
+######################################################################
+#  S H O P C A R T  M O D E L
+######################################################################
+class Shopcart(db.Model,PersistentBase):
+    """
+    Class that represents an Shopcart
+    """
+    app = None
+
+    # Table Schema
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, nullable=False)
+    items = db.relationship("Item", backref = "shopcart", passive_deletes=True)
+    def __repr__(self):
+        return f"<Shopcart {self.id} customer=[{self.customer_id}]>"
+
+    def create(self):
+        """Create an shopcart to the database"""
+        self.id = None
+        logger.info("Creating shopcart %s", self.id)
+        db.session.add(self)
+        db.session.commit()
+    
+    def update(self):
+        """Update an shopcart to the database"""
+        logger.info("Updating shopcart %s",self.id)
+        db.session.commit()
+
+    def serialize(self):
+        """Converts an Shopcart into a dictionary"""
+        shopcart = {
+            "id": self.id,
+            "customer_id": self.customer_id,
+            "items": []
+        }
+        for item in self.items:
+            shopcart["items"].append(item.serialize())
+        return shopcart
+
+    def deserialize(self, data):
+        """
+        Populates an Shopcart from a dictionary
+
+        Args:
+            data (dict): A dictionary containing the resource data
+        """
+        try:
+            self.id = data["id"]
+            self.customer_id = data["customer_id"]
+            items_list = data.get("items")
+            for json_item in items_list:
+                item = Item()
+                item.deserialize(json_item)
+                self.items.append(item)
+        except KeyError as error:
+            raise DataValidationError("Invalid Account: missing " + error.args[0]) from error
+        except TypeError as error:
+            raise DataValidationError(
+                "Invalid Account: body of request contained "
+                "bad or no data - " + error.args[0]
+            ) from error
+        return self
+    
+    @classmethod
+    def find_by_customer_id(cls, c_id):
+        """Return shopcart with given customer id"""
+        logger.info("Processing shopcart id query for customer %s ...", c_id)
+        return cls.query.filter(cls.customer_id == c_id)
+
+
+   
