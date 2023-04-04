@@ -1,5 +1,5 @@
 """
-Models for Account
+Models for Shopcart
 
 All of the models are stored in this module
 """
@@ -15,6 +15,7 @@ logger = logging.getLogger("flask.app")
 db = SQLAlchemy()
 
 def init_db(app):
+    """Initialize the SQLAlchemy app"""
     Shopcart.init_db(app)
 
 class DataValidationError(Exception):
@@ -64,6 +65,7 @@ class PersistentBase:
 
         """
         logger.info("Initializing database")
+        cls.app = app
         # This is where we initialize SQLAlchemy from the Flask app
         db.init_app(app)
         app.app_context().push()
@@ -99,12 +101,13 @@ class Item(db.Model,PersistentBase):
     # Table Schema
     id = db.Column(db.Integer, primary_key =  True)
     shopcart_id = db.Column(db.Integer, db.ForeignKey("shopcart.id"))
-    name = db.Column(db.String(64)) # only for better test,a redundant column
     product_id =db.Column(db.Integer, nullable=False)
+    name = db.Column(db.String(64)) # only for better test,a redundant column
+    price = db.Column(db.Float, nullable = False)
     count = db.Column(db.Integer, nullable = False)
     
     def __repr__(self):
-        return f"<Item shopcart=[{self.shopcart_id}] product=[{self.product_id}]>"
+        return f"<Item [{self.id}]: shopcart=[{self.shopcart_id}] product=[{self.product_id}]>"
 
     def create(self):
         """Create an item to the database"""
@@ -123,8 +126,9 @@ class Item(db.Model,PersistentBase):
         item = {
             "id":self.id,
             "shopcart_id": self.shopcart_id,
-            "name": self.name,
             "product_id":self.product_id,
+            "name": self.name,
+            "price": self.price,
             "count":self.count
         }
         return item
@@ -137,16 +141,17 @@ class Item(db.Model,PersistentBase):
             data (dict): A dictionary containing the resource data
         """
         try:
-            self.id = data['id']
+            self.id = data["id"]
             self.name = data["name"]
             self.shopcart_id = data["shopcart_id"]
             self.product_id = data["product_id"]
+            self.price = data["price"]
             self.count = data["count"]
         except KeyError as error:
-            raise DataValidationError("Invalid Account: missing " + error.args[0]) from error
+            raise DataValidationError("Invalid Item: missing " + error.args[0]) from error
         except TypeError as error:
             raise DataValidationError(
-                "Invalid Account: body of request contained "
+                "Invalid Item: body of request contained "
                 "bad or no data - " + error.args[0]
             ) from error
         return self
@@ -155,15 +160,23 @@ class Item(db.Model,PersistentBase):
     def find_by_shopcart_and_product(cls, shopcart, product):
         """Return item with given shopcart id and product id"""
         logger.info("Processing item id query for %s and %s ...", shopcart, product)
-        return cls.query.filter(cls.shopcart_id == shopcart, cls.product_id == product)
+        return cls.query.filter(cls.shopcart_id == shopcart, cls.product_id == product).first()
 
+    '''
     @classmethod
     def find_by_shopcart(cls, shopcart):
         """Return items with given shopcart id"""
         logger.info("Processing item id query for shopcart %s ...", shopcart)
         return cls.query.filter(cls.shopcart_id == shopcart)
-    
+    '''
 
+    @classmethod
+    def delete_all_by_shopcart(cls, shopcart):
+        """Delete all items with given shopcart id"""
+        q = cls.query.filter(cls.shopcart_id == shopcart).all()
+        logger.info("Deleting %d item for shopcart %s ...", len(q), shopcart)
+        cls.query.filter(cls.shopcart_id == shopcart).delete()
+        db.session.commit()
 
 ######################################################################
 #  S H O P C A R T  M O D E L
@@ -220,10 +233,10 @@ class Shopcart(db.Model,PersistentBase):
                 item.deserialize(json_item)
                 self.items.append(item)
         except KeyError as error:
-            raise DataValidationError("Invalid Account: missing " + error.args[0]) from error
+            raise DataValidationError("Invalid Shopcart: missing " + error.args[0]) from error
         except TypeError as error:
             raise DataValidationError(
-                "Invalid Account: body of request contained "
+                "Invalid Item: body of request contained "
                 "bad or no data - " + error.args[0]
             ) from error
         return self

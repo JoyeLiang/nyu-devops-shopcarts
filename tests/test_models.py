@@ -1,5 +1,5 @@
 """
-Test cases for YourResourceModel Model
+Test cases for Shopcart & Item Model
 
 """
 import os
@@ -8,6 +8,8 @@ import unittest
 from service.models import Shopcart,Item, DataValidationError, db
 from service import app
 from tests.factories import ShopcartFactory, ItemFactory
+
+logger = logging.getLogger("flask.app")
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/testdb"
@@ -35,9 +37,13 @@ class TestShopcartModel(unittest.TestCase):
 
     def setUp(self):
         """ This runs before each test """
-        db.session.query(Item).delete()
-        db.session.query(Shopcart).delete()  # clean up the last tests
-        db.session.commit()
+        db.drop_all()
+        #db.drop(Shopcart)
+        db.create_all()
+        #db.session.query(Item).delete()
+        #db.session.query(Shopcart).delete()  # clean up the last tests
+        # delete() only clear the table, if the schema changed, we need to drop the whole table
+        #db.session.commit()
 
     def tearDown(self):
         """ This runs after each test """
@@ -140,6 +146,7 @@ class TestShopcartModel(unittest.TestCase):
         self.assertEqual(items[0]["id"], item.id)
         self.assertEqual(items[0]["shopcart_id"], item.shopcart_id)
         self.assertEqual(items[0]["name"], item.name)
+        self.assertEqual(items[0]["price"], item.price)
         self.assertEqual(items[0]["product_id"], item.product_id)
         self.assertEqual(items[0]["count"], item.count)
     
@@ -164,6 +171,7 @@ class TestShopcartModel(unittest.TestCase):
         shopcart = Shopcart()
         self.assertRaises(DataValidationError, shopcart.deserialize, [])
 
+
 ######################################################################
 #  I T E M   M O D E L   T E S T   C A S E S
 ######################################################################
@@ -177,7 +185,7 @@ class TestItemModel(unittest.TestCase):
         app.config["DEBUG"] = False
         app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
         app.logger.setLevel(logging.CRITICAL)
-        Shopcart.init_db(app)
+        Item.init_db(app)
 
     @classmethod
     def tearDownClass(cls):
@@ -212,7 +220,8 @@ class TestItemModel(unittest.TestCase):
 
         items = Item.all()
         self.assertEqual(len(items), 1)
-        new_items = Item.find_by_shopcart(shopcarts[0].id)
+        new_items = shopcarts[0].items
+        #new_items = Item.find_by_shopcart(shopcarts[0].id)
         self.assertEqual(new_items[0].id, item.id)
         
     def test_find_by_shopcart_and_product(self):
@@ -220,26 +229,51 @@ class TestItemModel(unittest.TestCase):
         item = ItemFactory()
         item.create()
 
-        found_item = Item.find_by_shopcart_and_product(item.shopcart_id, item.product_id)[0]
+        found_item = Item.find_by_shopcart_and_product(item.shopcart_id, item.product_id)
         self.assertEqual(found_item.name, item.name)
+        self.assertEqual(found_item.price, item.price)
         self.assertEqual(found_item.count, item.count)
         self.assertEqual(found_item.id, item.id)
+
+    def test_find_by_shopcart(self):
+        """It should read items by shopcart"""
+        shopcart = ShopcartFactory()
+        shopcart.create()
+        item1 = ItemFactory(shopcart = shopcart)
+        item1.create()
+        logger.info("add item %s shopcart %s", item1.id, item1.shopcart_id)
+        logger.debug(item1)
+
+        item2 = ItemFactory(shopcart = shopcart)
+        item2.create()
+        logger.info("add item  %s shopcart %s", item2.id, item2.shopcart_id)
+        logger.debug(item2)
+
+        items = Item.all()
+        self.assertEqual(len(items), 2)
+        get_items = shopcart.items
+        #get_items = Item.find_by_shopcart(item1.shopcart_id)
+        self.assertEqual(len(get_items), 2)
+
+        
     
     def test_update_item(self):
         """It should update a item"""
-        item = ItemFactory(count = 1)
+        item = ItemFactory(count = 1, price = 1.5)
         item.create()
 
         self.assertIsNotNone(item.shopcart_id)
         self.assertIsNotNone(item.product_id)
         self.assertEqual(item.count, 1)
 
-        item = Item.find_by_shopcart_and_product(item.shopcart_id, item.product_id)[0]
+        item = Item.find(item.id)
         item.count = 3
+        item.price = 4.5
         item.update()
-
-        item = Item.find_by_shopcart_and_product(item.shopcart_id, item.product_id)[0]
+        item = Item.find(item.id)
         self.assertEqual(item.count, 3)
+        self.assertEqual(item.price, 4.5)
+        
     
     def test_delete_item(self):
         """It should delete an item"""
@@ -255,6 +289,28 @@ class TestItemModel(unittest.TestCase):
         item.delete()
         items = Item.all()
         self.assertEqual(len(items), 0)
+    
+    def test_delete_all_item_by_shopcart(self):
+        """It should delete all items belong to a shopcart"""
+        items = Item.all()
+        self.assertEqual(items, [])
+        shopcart1 = ShopcartFactory()
+        shopcart1.create()
+        shopcart2 = ShopcartFactory()
+        shopcart2.create()
+
+        for t in ItemFactory.create_batch(5, shopcart = shopcart1):
+            t.create()
+        for t in ItemFactory.create_batch(5, shopcart = shopcart2):
+            t.create()
+        items = Item.all()
+        self.assertEqual(len(items), 10)
+
+        Item.delete_all_by_shopcart(shopcart1.id)
+        items = Item.all()
+        self.assertEqual(len(items), 5)
+        for t in items:
+            self.assertEqual(t.shopcart_id, shopcart2.id)
   
     def test_list_all_items(self):
         """It should List all items in the database"""
@@ -285,6 +341,7 @@ class TestItemModel(unittest.TestCase):
         new_item.deserialize(serial_item)
         self.assertEqual(new_item.id, item.id)
         self.assertEqual(new_item.name, item.name)
+        self.assertEqual(new_item.price, item.price)
         self.assertEqual(new_item.product_id, item.product_id)
         self.assertEqual(new_item.shopcart_id, item.shopcart_id)
         self.assertEqual(new_item.count, item.count)
